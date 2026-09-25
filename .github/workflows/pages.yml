@@ -47,7 +47,7 @@ jobs:
 
       - name: Render
         run: |
-          php bin/render.php api.json build \
+          php bin/render.php api.json build .source \
             theme-my-login/theme-my-login \
             "$(git -C .source rev-parse HEAD)"
 

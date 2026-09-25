@@ -17,7 +17,9 @@ their API surface shouldn't land on a public URL as a side effect of a spike.
    CLI takes a directory and recurses it blindly, which means parsing every vendored copy of
    WordPress, so this drives `parse_files()` off `git ls-files` instead. Naming files parses only
    those and merges them into an existing JSON by path.
-3. `bin/render.php <in.json> <out-dir> <owner/repo> <ref> [hook-prefix]` writes the static site.
+3. `bin/render.php <in.json> <out-dir> <source-root> <owner/repo> <ref> [hook-prefix]` writes the
+   static site, including each symbol's own source, sliced out of the checkout and highlighted by
+   PHP's own highlighter with its inline colors swapped for theme-aware classes.
    Hooks not matching the prefix (`tml_` by default) are left out: the plugin re-fires a lot of
    WordPress core's own hooks so its forms behave like `wp-login.php`, and those belong in core's
    reference rather than this one.
@@ -25,7 +27,7 @@ their API surface shouldn't land on a public URL as a side effect of a spike.
 ```
 bash bin/install-parser.sh
 php -dmemory_limit=2g bin/parse.php ../theme-my-login api.json
-php bin/render.php api.json build theme-my-login/theme-my-login master
+php bin/render.php api.json build ../theme-my-login theme-my-login/theme-my-login master
 ```
 
 `.github/workflows/pages.yml` runs the same three steps and deploys to Pages, on a push to `bin/`

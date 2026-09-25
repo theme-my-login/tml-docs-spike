@@ -2,19 +2,22 @@
 /**
  * Render phpdoc-parser JSON into a static developer reference.
  *
- * Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref> [hook-prefix]
+ * Usage: php bin/render.php <in.json> <out-dir> <source-root> <owner/repo> <ref> [hook-prefix]
  */
 
 $in     = $argv[1] ?? null;
 $dir    = $argv[2] ?? null;
-$slug   = $argv[3] ?? null;
-$ref    = $argv[4] ?? 'master';
-$prefix = $argv[5] ?? 'tml_';
+$source = $argv[3] ?? null;
+$slug   = $argv[4] ?? null;
+$ref    = $argv[5] ?? 'master';
+$prefix = $argv[6] ?? 'tml_';
 
-if ( null === $in || null === $dir || null === $slug ) {
-	fwrite( STDERR, "Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref> [hook-prefix]\n" );
+if ( null === $in || null === $dir || null === $source || null === $slug ) {
+	fwrite( STDERR, "Usage: php bin/render.php <in.json> <out-dir> <source-root> <owner/repo> <ref> [hook-prefix]\n" );
 	exit( 1 );
 }
+
+$source = rtrim( (string) realpath( $source ), '/' );
 
 $data = json_decode( (string) file_get_contents( $in ), true );
 
@@ -211,6 +214,75 @@ function signature( array $item ) {
 }
 
 /**
+ * Render the lines a symbol was parsed from, highlighted.
+ *
+ * PHP's own highlighter emits inline colors; they are swapped for classes so the
+ * block can follow the page theme.
+ *
+ * @param string $root     Source checkout root.
+ * @param string $path     Path relative to that root.
+ * @param int    $line     First line.
+ * @param int    $end_line Last line.
+ * @return string
+ */
+function source_block( $root, $path, $line, $end_line ) {
+	$file = $root . '/' . $path;
+
+	if ( ! is_file( $file ) ) {
+		return '';
+	}
+
+	$lines = array_slice( file( $file, FILE_IGNORE_NEW_LINES ), $line - 1, $end_line - $line + 1 );
+
+	if ( ! $lines ) {
+		return '';
+	}
+
+	// Methods and anything else nested come out indented; strip the common prefix.
+	$indent = null;
+
+	foreach ( $lines as $text ) {
+		if ( '' === trim( $text ) ) {
+			continue;
+		}
+
+		$width = strlen( $text ) - strlen( ltrim( $text ) );
+		$indent = null === $indent ? $width : min( $indent, $width );
+	}
+
+	if ( $indent ) {
+		$lines = array_map(
+			function ( $text ) use ( $indent ) {
+				return substr( $text, $indent );
+			},
+			$lines
+		);
+	}
+
+	$html = highlight_string( '<?php ' . implode( "\n", $lines ), true );
+
+	// Drop the opening tag the highlighter needed.
+	$html = preg_replace( '#<span style="color: \#0000BB">&lt;\?php </span>#', '', $html, 1 );
+
+	$classes = array(
+		'#000000' => 'h-html',
+		'#0000BB' => 'h-def',
+		'#007700' => 'h-kw',
+		'#DD0000' => 'h-str',
+		'#FF8000' => 'h-com',
+	);
+
+	foreach ( $classes as $color => $class ) {
+		$html = str_replace( sprintf( 'style="color: %s"', $color ), sprintf( 'class="%s"', $class ), $html );
+	}
+
+	return sprintf(
+		"<details class=\"source\"><summary>View source</summary>\n%s</details>\n",
+		$html
+	);
+}
+
+/**
  * Build a GitHub link to the lines a symbol was parsed from.
  *
  * @param string $path     Path relative to the repository root.
@@ -394,8 +466,10 @@ foreach ( $items['function'] as $function ) {
 		. params_table( $function )
 		. returns_block( $function )
 		. uses_block( $function, $items )
+		. "<h2>Source</h2>\n"
+		. source_block( $source, $function['path'], $function['line'], $function['end_line'] )
 		. sprintf(
-			"<h2>Source</h2>\n<p><a href=\"%s\">%s, line %d</a></p>\n",
+			"<p><a href=\"%s\">%s, line %d</a></p>\n",
 			e( source_link( $function['path'], $function['line'], $function['end_line'], $slug, $ref ) ),
 			e( $function['path'] ),
 			$function['line']
@@ -412,11 +486,12 @@ foreach ( $items['hook'] as $hook ) {
 
 	foreach ( $hook['sites'] as $site ) {
 		$sites .= sprintf(
-			"<li>Fired in <code>%s</code> &mdash; <a href=\"%s\">%s, line %d</a></li>\n",
+			"<li>Fired in <code>%s</code> &mdash; <a href=\"%s\">%s, line %d</a>\n%s</li>\n",
 			e( $site['fired_in'] ),
 			e( source_link( $site['path'], $site['line'], $site['end_line'], $slug, $ref ) ),
 			e( $site['path'] ),
-			$site['line']
+			$site['line'],
+			source_block( $source, $site['path'], $site['line'], $site['end_line'] )
 		);
 	}
 
@@ -468,8 +543,11 @@ foreach ( $items['class'] as $class ) {
 		$body .= "<h2>Methods</h2>\n<table><thead><tr><th>Signature</th><th>Visibility</th><th>Description</th></tr></thead><tbody>\n{$methods}</tbody></table>\n";
 	}
 
+	$body .= "<h2>Source</h2>\n"
+		. source_block( $source, $class['path'], $class['line'], $class['end_line'] );
+
 	$body .= sprintf(
-		"<h2>Source</h2>\n<p><a href=\"%s\">%s, line %d</a></p>\n",
+		"<p><a href=\"%s\">%s, line %d</a></p>\n",
 		e( source_link( $class['path'], $class['line'], $class['end_line'], $slug, $ref ) ),
 		e( $class['path'] ),
 		$class['line']
