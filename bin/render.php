@@ -2,16 +2,17 @@
 /**
  * Render phpdoc-parser JSON into a static developer reference.
  *
- * Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref>
+ * Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref> [hook-prefix]
  */
 
-$in    = $argv[1] ?? null;
-$dir   = $argv[2] ?? null;
-$slug  = $argv[3] ?? null;
-$ref   = $argv[4] ?? 'master';
+$in     = $argv[1] ?? null;
+$dir    = $argv[2] ?? null;
+$slug   = $argv[3] ?? null;
+$ref    = $argv[4] ?? 'master';
+$prefix = $argv[5] ?? 'tml_';
 
 if ( null === $in || null === $dir || null === $slug ) {
-	fwrite( STDERR, "Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref>\n" );
+	fwrite( STDERR, "Usage: php bin/render.php <in.json> <out-dir> <owner/repo> <ref> [hook-prefix]\n" );
 	exit( 1 );
 }
 
@@ -25,10 +26,15 @@ if ( ! is_array( $data ) ) {
 /**
  * Collect every symbol, flattening hooks out of their declaring function.
  *
- * @param array $data Parsed files.
+ * Only hooks matching the prefix are kept. The plugin re-fires a lot of WordPress
+ * core's own hooks so its forms behave like wp-login.php, and those belong in
+ * core's reference, not this one.
+ *
+ * @param array  $data   Parsed files.
+ * @param string $prefix Hook name prefix to keep.
  * @return array Symbols keyed by type.
  */
-function collect( array $data ) {
+function collect( array $data, $prefix ) {
 	$out = array(
 		'function' => array(),
 		'hook'     => array(),
@@ -72,6 +78,10 @@ function collect( array $data ) {
 
 	foreach ( $out['hook'] as $hook ) {
 		$name = $hook['name'];
+
+		if ( 0 !== strpos( $name, $prefix ) ) {
+			continue;
+		}
 
 		if ( isset( $hooks[ $name ] ) ) {
 			$hooks[ $name ]['sites'][] = $hook;
@@ -368,7 +378,7 @@ function uses_block( array $item, $items ) {
 	return "<h2>Uses</h2>\n<p class=\"uses\">" . implode( ' ', $links ) . "</p>\n";
 }
 
-$items = collect( $data );
+$items = collect( $data, $prefix );
 
 @mkdir( $dir, 0755, true );
 @mkdir( $dir . '/assets', 0755, true );
